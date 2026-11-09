@@ -1,6 +1,6 @@
 # HyprDroid
 
-HyprDroid 1.2, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
+HyprDroid 1.3, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
 
 ## Gereksinimler
 
@@ -36,6 +36,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Kurulumdan sonra Android’in “Ana ekran uygulaması” seçicisinde **HyprDroid**’u varsayılan olarak seçin. Seçici görünmezse Android Ayarları → Uygulamalar → Varsayılan uygulamalar → Ana ekran uygulaması yolunu kullanın.
 
 ## Kullanım
+
+Yeni kurulumda ilk açılış sihirbazı vurgu rengini, panel saydamlığını, galeriden duvar kâğıdını, dock uygulama adlarını ve geçiş animasyonlarını seçtirir. Tercihler cihazda saklanır; sihirbaz bir kez görünür, seçimler daha sonra Ayarlar’dan değiştirilebilir. Önceki HyprDroid sürümünden yükselten kullanıcılar bu ilk-kurulum ekranını tekrar görmez.
 
 Ana ekranda komut alanına `run Ayarlar` veya `run instagra` yazıp klavyedeki Git/Enter düğmesine dokunarak, uygulama adının tamamı ya da tek bir uygulamaya eşleşen başlangıç kısmıyla uygulama açabilirsiniz. Paket kodu da kabul edilir: `pkg:com.whatsapp` veya `com.android.settings`. Komut, Android’in kurulu uygulama listesindeki ad/paket eşleşmesini bulur ve PackageManager üzerinden başlatır; belirsiz eşleşmelerde rastgele uygulama seçmek yerine tam ad ister. Yukarı kaydırma uygulama çekmecesini açar. Çekmecedeki arama anlık filtreler ve liste alfabetik sıralanır; bir uygulama simgesine dokunmak da uygulamayı başlatır.
 

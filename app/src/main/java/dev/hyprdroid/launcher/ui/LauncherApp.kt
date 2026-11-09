@@ -133,7 +133,7 @@ import androidx.compose.ui.res.stringResource
 import dev.hyprdroid.launcher.LauncherPrefs
 import dev.hyprdroid.launcher.TermuxBridge
 
-private enum class LauncherPage { HOME, DRAWER, SETTINGS }
+private enum class LauncherPage { SETUP, HOME, DRAWER, SETTINGS }
 private data class PendingTermuxCommand(val command: String?)
 
 data class LauncherAppInfo(val packageName: String, val label: String)
@@ -155,7 +155,7 @@ fun LauncherApp(
     var animations by remember { mutableStateOf(prefs.animationsEnabled) }
     var wallpaperUri by remember { mutableStateOf(prefs.wallpaperUri) }
     var workspace by remember { mutableIntStateOf(prefs.lastWorkspace) }
-    var page by remember { mutableStateOf(LauncherPage.HOME) }
+    var page by remember { mutableStateOf(if (prefs.setupCompleted) LauncherPage.HOME else LauncherPage.SETUP) }
     var editMode by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var commandText by remember { mutableStateOf("") }
@@ -266,6 +266,19 @@ fun LauncherApp(
             label = "launcher-page-transition"
         ) { visiblePage ->
         when (visiblePage) {
+            LauncherPage.SETUP -> FirstRunSetup(
+                accentIndex = accentIndex,
+                transparency = transparency,
+                dockLabels = dockLabels,
+                animations = animations,
+                wallpaperSelected = wallpaperUri != null,
+                onAccent = { accentIndex = it; prefs.accentIndex = it; onAccentChanged(it) },
+                onTransparency = { transparency = it; prefs.transparency = it },
+                onDockLabels = { dockLabels = it; prefs.showDockLabels = it },
+                onAnimations = { animations = it; prefs.animationsEnabled = it },
+                onPickWallpaper = { wallpaperPicker.launch(arrayOf("image/*")) },
+                onFinish = { prefs.setupCompleted = true; page = LauncherPage.HOME }
+            )
             LauncherPage.HOME -> HomePage(
                 activity = activity,
                 prefs = prefs,
@@ -438,6 +451,137 @@ private fun WallpaperLayer(activity: ComponentActivity, wallpaperUri: String?) {
         )
     } else {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFFED78B7), Color(0xFF6B5CC6), Color(0xFF146C88), Color(0xFF0C1324)))))
+    }
+}
+
+@Composable
+private fun FirstRunSetup(
+    accentIndex: Int,
+    transparency: Float,
+    dockLabels: Boolean,
+    animations: Boolean,
+    wallpaperSelected: Boolean,
+    onAccent: (Int) -> Unit,
+    onTransparency: (Float) -> Unit,
+    onDockLabels: (Boolean) -> Unit,
+    onAnimations: (Boolean) -> Unit,
+    onPickWallpaper: () -> Unit,
+    onFinish: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 19.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+                Text("H", color = Background, fontWeight = FontWeight.Black, fontSize = 19.sp)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("HYPRDROID", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Text("FIRST BOOT  ·  KİŞİSELLEŞTİRME", color = Muted, fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = 0.7.sp)
+            }
+            Text("01 / 01", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Masaüstünü kendine göre kur.", fontSize = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+            Text("Görünümü seç; tercihlerin bu telefonda saklanır ve sonradan Ayarlar’dan değiştirilebilir.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+        }
+
+        Surface(
+            color = Panel.copy(alpha = transparency),
+            shape = RoundedCornerShape(21.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(Color(0xFFFF647C), Color(0xFFFFC46B), Color(0xFF71E5B6)).forEach { color ->
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+                        }
+                    }
+                    Text("  WAYBAR PREVIEW", color = Muted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("GLASS ${((1f - transparency) * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.13f))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    repeat(3) { index ->
+                        Box(
+                            Modifier.size(width = 29.dp, height = 25.dp).clip(RoundedCornerShape(8.dp))
+                                .background(if (index == 0) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.08f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("0${index + 1}", color = if (index == 0) Background else Color.White.copy(alpha = 0.68f), fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())}  ·  HYPR", color = Color.White.copy(alpha = 0.82f), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                }
+            }
+        }
+
+        Surface(
+            color = Panel.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("VURGU RENGİ", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp, fontSize = 9.sp)
+                Text("Panellerin ve seçili çalışma alanlarının rengi", color = Muted, fontSize = 11.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    AccentColors.forEachIndexed { index, color ->
+                        val selected = index == accentIndex
+                        Box(
+                            Modifier.padding(vertical = 5.dp).size(37.dp).clip(CircleShape)
+                                .background(color.copy(alpha = if (selected) 1f else 0.72f))
+                                .border(BorderStroke(if (selected) 2.dp else 1.dp, if (selected) Color.White else color.copy(alpha = 0.3f)), CircleShape)
+                                .combinedClickable(onClick = { onAccent(index) }, onLongClick = { onAccent(index) }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selected) Icon(Icons.Default.Check, "Seçili renk", tint = Background, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 2.dp))
+                Text("PANEL SAYDAMLIĞI  ·  %${((1f - transparency) * 100).toInt()} ŞEFFAF", color = Color.White.copy(alpha = 0.9f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Slider(value = transparency, onValueChange = onTransparency, valueRange = 0.18f..0.72f)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Cam gibi", color = Muted, fontSize = 9.sp)
+                    Text("Daha opak", color = Muted, fontSize = 9.sp)
+                }
+            }
+        }
+
+        Surface(
+            color = Panel.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
+                Text("MASAÜSTÜ", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp, fontSize = 9.sp)
+                OutlinedButton(onClick = onPickWallpaper, modifier = Modifier.fillMaxWidth().padding(top = 7.dp)) {
+                    Icon(Icons.Default.Wallpaper, null)
+                    Text(if (wallpaperSelected) "  Duvar kâğıdı seçildi" else "  Galeriden duvar kâğıdı seç")
+                }
+                SettingSwitch("Dock’ta uygulama adlarını göster", dockLabels, onDockLabels)
+                SettingSwitch("Yumuşak workspace animasyonları", animations, onAnimations)
+            }
+        }
+
+        Button(onClick = onFinish, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+            Icon(Icons.Default.Check, null)
+            Text("  Tercihleri kaydet ve masaüstünü aç")
+        }
+        TextButton(onClick = onFinish, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Varsayılan görünümle başla", color = Muted)
+        }
     }
 }
 
@@ -975,7 +1119,7 @@ private fun SettingsPage(
                 Text("  Varsayılanlara dön")
             }
         }
-        Text("HyprDroid 1.2 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
+        Text("HyprDroid 1.3 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
     }
 }
 

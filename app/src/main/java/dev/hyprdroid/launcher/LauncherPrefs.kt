@@ -6,10 +6,20 @@ class LauncherPrefs(context: Context) {
     private val prefs = context.getSharedPreferences("hyprdroid", Context.MODE_PRIVATE)
 
     init {
-        if (prefs.getInt("ui_style_version", 0) < 2) {
-            prefs.edit().putFloat("transparency", 0.34f).putInt("ui_style_version", 2).apply()
+        val hadPriorPreferences = prefs.all.isNotEmpty()
+        val styleVersion = prefs.getInt("ui_style_version", 0)
+        val update = prefs.edit()
+        if (styleVersion < 2) update.putFloat("transparency", 0.34f)
+        if (styleVersion < 3) {
+            update.putInt("ui_style_version", 3)
+            if (hadPriorPreferences) update.putBoolean("setup_completed", true)
         }
+        update.apply()
     }
+
+    var setupCompleted: Boolean
+        get() = prefs.getBoolean("setup_completed", false)
+        set(value) { prefs.edit().putBoolean("setup_completed", value).apply() }
 
     var accentIndex: Int
         get() = prefs.getInt("accent", 1)
@@ -67,7 +77,7 @@ class LauncherPrefs(context: Context) {
     }
 
     fun restoreDefaults() {
-        prefs.edit().clear().apply()
+        prefs.edit().clear().putInt("ui_style_version", 3).putBoolean("setup_completed", true).apply()
     }
 
     companion object { const val WORKSPACE_COUNT = 3 }
