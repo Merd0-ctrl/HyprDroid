@@ -1,6 +1,6 @@
 # HyprDroid
 
-HyprDroid 1.3, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
+HyprDroid 1.3.1, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Sistem bilgi şeridi ağ türünü, pil yüzdesini, toplam RAM kullanımını ve Android’in `/proc/stat` sayaçlarından örneklenen CPU yükünü gösterir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
 
 ## Gereksinimler
 
@@ -20,6 +20,10 @@ Projeyi Android Studio’da açıp Gradle senkronizasyonunu tamamlayın. Termina
 ```
 
 APK şu konumda üretilir: `app/build/outputs/apk/debug/app-debug.apk`.
+
+### İmzalı release APK
+
+Kendi keystore dosyanızı proje dışında saklayın. `keystore.properties.example` dosyasını `keystore.properties` olarak kopyalayıp keystore yolunu ve parolalarını girin; `keystore.properties` ile `.jks`/`.keystore` dosyaları Git tarafından yok sayılır. Ardından `./gradlew assembleRelease` çalıştırın. Release APK `app/build/outputs/apk/release/app-release.apk` konumunda oluşur. Aynı uygulamanın ilerideki sürümlerini güncelleyebilmek için keystore’un güvenli bir yedeğini alın ve kaybetmeyin.
 
 JVM testleri ve Android lint kontrolleri:
 

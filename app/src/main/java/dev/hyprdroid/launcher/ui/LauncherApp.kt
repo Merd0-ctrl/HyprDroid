@@ -1,10 +1,13 @@
 package dev.hyprdroid.launcher.ui
 
+import android.app.ActivityManager
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
 import android.provider.Settings
@@ -132,9 +135,12 @@ import java.util.Locale
 import androidx.compose.ui.res.stringResource
 import dev.hyprdroid.launcher.LauncherPrefs
 import dev.hyprdroid.launcher.TermuxBridge
+import java.io.File
 
 private enum class LauncherPage { SETUP, HOME, DRAWER, SETTINGS }
 private data class PendingTermuxCommand(val command: String?)
+private data class SystemStats(val network: String, val memoryPercent: Int?, val cpuPercent: Int?, val batteryPercent: Int?)
+internal data class CpuSnapshot(val totalTicks: Long, val idleTicks: Long)
 
 data class LauncherAppInfo(val packageName: String, val label: String)
 
@@ -617,8 +623,15 @@ private fun HomePage(
     val now by produceState(System.currentTimeMillis()) {
         while (true) { value = System.currentTimeMillis(); delay(1000) }
     }
-    val batteryPercent by produceState(readBatteryPercent(activity)) {
-        while (true) { value = readBatteryPercent(activity); delay(60_000) }
+    val systemStats by produceState(readSystemStats(activity, null)) {
+        var previousCpu = readCpuSnapshot()
+        while (true) {
+            delay(3_000)
+            val currentCpu = readCpuSnapshot()
+            val cpuPercent = if (previousCpu != null && currentCpu != null) cpuUsagePercent(previousCpu!!, currentCpu) else null
+            previousCpu = currentCpu
+            value = readSystemStats(activity, cpuPercent)
+        }
     }
     val allDockPackages = remember(widgetRefresh, prefs, apps) {
         (0 until LauncherPrefs.WORKSPACE_COUNT).flatMap { prefs.shortcuts(it) }.distinct().sorted()
@@ -684,11 +697,13 @@ private fun HomePage(
                     }
                 }
             }
-            Text("BAT $batteryPercent%", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 8.sp, modifier = Modifier.padding(start = 4.dp))
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenDrawer, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.Apps, "Uygulamalar", tint = MaterialTheme.colorScheme.primary) }
             IconButton(onClick = onOpenSettings, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.Settings, "Ayarlar", tint = Color.White.copy(alpha = 0.85f)) }
         }
+
+        SystemStatusStrip(systemStats)
+        Spacer(Modifier.height(8.dp))
 
         CommandBar(
             value = commandText,
@@ -1005,6 +1020,31 @@ private fun AppDrawerPage(
 }
 
 @Composable
+private fun SystemStatusStrip(stats: SystemStats) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        SystemStatusPill("NET", stats.network, Modifier.weight(1f))
+        SystemStatusPill("RAM", stats.memoryPercent?.let { "$it%" } ?: "--", Modifier.weight(1f))
+        SystemStatusPill("CPU", stats.cpuPercent?.let { "$it%" } ?: "--", Modifier.weight(1f))
+        SystemStatusPill("BAT", stats.batteryPercent?.let { "$it%" } ?: "--", Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SystemStatusPill(title: String, value: String, modifier: Modifier = Modifier) {
+    Surface(
+        color = Panel.copy(alpha = 0.38f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.11f)),
+        modifier = modifier
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp)) {
+            Text(title, color = Muted, fontFamily = FontFamily.Monospace, fontSize = 7.sp, letterSpacing = 0.7.sp)
+            Text(value, color = if (value == "OFF") Color(0xFFFFC46B) else MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
 private fun CommandBar(
     value: String,
     status: String,
@@ -1119,7 +1159,7 @@ private fun SettingsPage(
                 Text("  Varsayılanlara dön")
             }
         }
-        Text("HyprDroid 1.3 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
+        Text("HyprDroid 1.3.1 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
     }
 }
 
@@ -1196,11 +1236,51 @@ private fun AppIconTile(
     }
 }
 
-private fun readBatteryPercent(context: Context): Int = try {
+private fun readSystemStats(context: Context, cpuPercent: Int?): SystemStats {
+    val network = try {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        val capabilities = manager?.activeNetwork?.let(manager::getNetworkCapabilities)
+        when {
+            capabilities == null -> "OFF"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WI-FI"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "MOBILE"
+            else -> "ONLINE"
+        }
+    } catch (_: Exception) { "--" }
+
+    val memoryPercent = try {
+        val manager = context.getSystemService(ActivityManager::class.java)
+        val memory = ActivityManager.MemoryInfo()
+        manager?.getMemoryInfo(memory)
+        if (memory.totalMem > 0L) (((memory.totalMem - memory.availMem).coerceAtLeast(0L) * 100L) / memory.totalMem).toInt() else null
+    } catch (_: Exception) { null }
+
+    return SystemStats(network, memoryPercent, cpuPercent, readBatteryPercent(context))
+}
+
+private fun readBatteryPercent(context: Context): Int? = try {
     context.getSystemService(BatteryManager::class.java)
         ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        ?.coerceIn(0, 100) ?: 0
-} catch (_: Exception) { 0 }
+        ?.takeIf { it in 0..100 }
+} catch (_: Exception) { null }
+
+private fun readCpuSnapshot(): CpuSnapshot? = try {
+    File("/proc/stat").bufferedReader().use { reader ->
+        val values = reader.readLine()?.trim()?.split(Regex("\\s+"))?.drop(1)?.mapNotNull(String::toLongOrNull)
+            ?: return null
+        if (values.size < 4) return null
+        val total = values.take(8).sum()
+        val idle = values.getOrElse(3) { 0L } + values.getOrElse(4) { 0L }
+        CpuSnapshot(total, idle)
+    }
+} catch (_: Exception) { null }
+
+internal fun cpuUsagePercent(previous: CpuSnapshot, current: CpuSnapshot): Int? {
+    val totalDelta = current.totalTicks - previous.totalTicks
+    val idleDelta = current.idleTicks - previous.idleTicks
+    if (totalDelta <= 0L) return null
+    return (((totalDelta - idleDelta).coerceAtLeast(0L) * 100L) / totalDelta).toInt().coerceIn(0, 100)
+}
 
 private fun findLauncherApps(context: Context): List<LauncherAppInfo> {
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

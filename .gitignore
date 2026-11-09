@@ -13,3 +13,8 @@ local.properties
 Thumbs.db
 *.swp
 *.swo
+
+# Private Android release-signing material
+*.jks
+*.keystore
+keystore.properties

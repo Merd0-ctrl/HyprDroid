@@ -2,6 +2,7 @@ package dev.hyprdroid.launcher.ui
 
 import dev.hyprdroid.launcher.TermuxBridge
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,5 +84,21 @@ class LauncherAppFilterTest {
         assertTrue(script.contains("'\\''"))
         assertTrue(script.contains("%s"))
         assertTrue(script.contains("hello"))
+    }
+
+    @Test
+    fun `cpu usage calculates the busy proportion between samples`() {
+        assertEquals(50, cpuUsagePercent(CpuSnapshot(100, 70), CpuSnapshot(200, 120)))
+    }
+
+    @Test
+    fun `cpu usage reports fully busy and idle samples`() {
+        assertEquals(100, cpuUsagePercent(CpuSnapshot(100, 80), CpuSnapshot(200, 80)))
+        assertEquals(0, cpuUsagePercent(CpuSnapshot(100, 80), CpuSnapshot(200, 180)))
+    }
+
+    @Test
+    fun `cpu usage returns null when counters do not advance`() {
+        assertNull(cpuUsagePercent(CpuSnapshot(100, 80), CpuSnapshot(100, 80)))
     }
 }

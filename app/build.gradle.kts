@@ -1,7 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val signingPropertiesFile = rootProject.file("keystore.properties")
+val signingProperties = Properties().apply {
+    if (signingPropertiesFile.isFile) signingPropertiesFile.inputStream().use { load(it) }
 }
 
 android {
@@ -12,9 +19,25 @@ android {
         applicationId = "dev.hyprdroid.launcher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = signingProperties.getProperty("storeFile")?.let { file(it) }
+            storePassword = signingProperties.getProperty("storePassword") ?: ""
+            keyAlias = signingProperties.getProperty("keyAlias") ?: ""
+            keyPassword = signingProperties.getProperty("keyPassword") ?: ""
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures { compose = true }
