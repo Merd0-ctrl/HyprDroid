@@ -45,6 +45,61 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean("freeform_launch", false)
         set(value) { prefs.edit().putBoolean("freeform_launch", value).apply() }
 
+    var gapDp: Int
+        get() = prefs.getInt("gap_dp", 12).coerceIn(0, 40)
+        set(value) { prefs.edit().putInt("gap_dp", value.coerceIn(0, 40)).apply() }
+
+    var borderWidthDp: Float
+        get() = prefs.getFloat("border_width_dp", 1f).coerceIn(0f, 4f)
+        set(value) { prefs.edit().putFloat("border_width_dp", value.coerceIn(0f, 4f)).apply() }
+
+    var workspaceNames: List<String>
+        get() {
+            val names = (prefs.getString("workspace_names", "1,2,3") ?: "1,2,3")
+                .split(',').map(String::trim).filter(String::isNotEmpty)
+            return (0 until WORKSPACE_COUNT).map { names.getOrNull(it) ?: (it + 1).toString() }
+        }
+        set(value) {
+            val names = (0 until WORKSPACE_COUNT).map { index -> value.getOrNull(index)?.trim().takeUnless { it.isNullOrEmpty() } ?: (index + 1).toString() }
+            prefs.edit().putString("workspace_names", names.joinToString(",")).apply()
+        }
+
+    var workspaceRules: Map<String, Int>
+        get() = (prefs.getStringSet("workspace_rules", emptySet()) ?: emptySet()).mapNotNull { entry ->
+            val separator = entry.lastIndexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            val packageName = entry.substring(0, separator)
+            val workspace = entry.substring(separator + 1).toIntOrNull()?.minus(1)
+            if (packageName.isBlank() || workspace == null || workspace !in 0 until WORKSPACE_COUNT) null else packageName to workspace
+        }.toMap()
+        set(value) {
+            val entries = value.mapNotNull { (packageName, workspace) ->
+                if (packageName.isBlank() || workspace !in 0 until WORKSPACE_COUNT) null else "$packageName=${workspace + 1}"
+            }.toSet()
+            prefs.edit().putStringSet("workspace_rules", entries).apply()
+        }
+
+    var configUri: String?
+        get() = prefs.getString("config_uri", null)
+        set(value) { prefs.edit().putString("config_uri", value).apply() }
+
+    fun binding(name: String): String {
+        val default = DEFAULT_BINDINGS[name] ?: "none"
+        return prefs.getString("bind_$name", default)?.takeIf { it in ALLOWED_BINDINGS[name].orEmpty() } ?: default
+    }
+
+    fun setBinding(name: String, action: String) {
+        if (action in ALLOWED_BINDINGS[name].orEmpty()) prefs.edit().putString("bind_$name", action).apply()
+    }
+
+    fun resetBindingsToDefaults() {
+        val editor = prefs.edit()
+        DEFAULT_BINDINGS.forEach { (name, action) -> editor.putString("bind_$name", action) }
+        editor.apply()
+    }
+
+    fun workspaceName(index: Int): String = workspaceNames.getOrElse(index) { (index + 1).toString() }
+
     var wallpaperUri: String?
         get() = prefs.getString("wallpaper_uri", null)
         set(value) { prefs.edit().putString("wallpaper_uri", value).apply() }
@@ -84,5 +139,19 @@ class LauncherPrefs(context: Context) {
         prefs.edit().clear().putInt("ui_style_version", 3).putBoolean("setup_completed", true).apply()
     }
 
-    companion object { const val WORKSPACE_COUNT = 3 }
+    companion object {
+        const val WORKSPACE_COUNT = 3
+        private val DEFAULT_BINDINGS = mapOf(
+            "swipe_up" to "drawer",
+            "swipe_left" to "workspace_next",
+            "swipe_right" to "workspace_prev",
+            "long_press" to "edit"
+        )
+        private val ALLOWED_BINDINGS = mapOf(
+            "swipe_up" to setOf("drawer", "settings", "edit", "none"),
+            "swipe_left" to setOf("workspace_next", "workspace_prev", "drawer", "settings", "none"),
+            "swipe_right" to setOf("workspace_next", "workspace_prev", "drawer", "settings", "none"),
+            "long_press" to setOf("edit", "drawer", "settings", "none")
+        )
+    }
 }

@@ -1,6 +1,7 @@
 package dev.hyprdroid.launcher.ui
 
 import dev.hyprdroid.launcher.TermuxBridge
+import dev.hyprdroid.launcher.HyprDroidConfigParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -111,5 +112,61 @@ class LauncherAppFilterTest {
     fun `freeform bounds reject invalid display sizes`() {
         assertNull(centeredFreeformBounds(0, 1000))
         assertNull(centeredFreeformBounds(1000, -1))
+    }
+
+    @Test
+    fun `hyprdroid config parses appearance bindings and workspace rules`() {
+        val config = HyprDroidConfigParser.parse(
+            """general {
+                accent = purple
+                transparency = 0.42
+                gap = 16
+                border = 2
+                dock_count = 6
+                freeform = true
+            }
+            workspace {
+                names = main, web, term
+                rule.com.example.mail = 2
+            }
+            bind {
+                swipe_up = settings
+                swipe_left = workspace_prev
+                long_press = drawer
+            }"""
+        )
+        assertEquals(3, config.accentIndex)
+        assertEquals(0.42f, config.transparency ?: -1f, 0.001f)
+        assertEquals(16, config.gapDp)
+        assertEquals(2f, config.borderWidthDp ?: -1f, 0.001f)
+        assertEquals(6, config.dockCount)
+        assertEquals(true, config.freeformLaunch)
+        assertEquals(listOf("main", "web", "term"), config.workspaceNames)
+        assertEquals(1, config.workspaceRules["com.example.mail"])
+        assertEquals("settings", config.bindings["swipe_up"])
+        assertEquals("workspace_prev", config.bindings["swipe_left"])
+        assertEquals("drawer", config.bindings["long_press"])
+    }
+
+    @Test
+    fun `hyprdroid config clamps values and ignores unsafe or invalid rules`() {
+        val config = HyprDroidConfigParser.parse(
+            """general {
+                gap = 500
+                border = -2
+                dock_count = 99
+            }
+            workspace {
+                rule.com.example.bad = 9
+            }
+            bind {
+                swipe_up = execute_shell
+            }"""
+        )
+        assertEquals(40, config.gapDp)
+        assertEquals(0f, config.borderWidthDp ?: -1f, 0.001f)
+        assertEquals(7, config.dockCount)
+        assertTrue(config.workspaceRules.isEmpty())
+        assertTrue(config.bindings.isEmpty())
     }
 }

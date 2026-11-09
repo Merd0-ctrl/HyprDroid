@@ -1,0 +1,26 @@
+# HyprDroid config subset; this is not a real Hyprland configuration.
+# Save as Documents/HyprDroid/hyprdroid.conf, then reload it in launcher settings.
+
+general {
+    accent = cyan
+    transparency = 0.34
+    gap = 12
+    border = 1
+    dock_count = 5
+    dock_labels = false
+    animations = true
+    freeform = false
+}
+
+workspace {
+    names = main, web, term
+    # App package rules use 1-based workspace numbers, for example:
+    # rule.com.instagram.android = 2
+}
+
+bind {
+    swipe_up = drawer
+    swipe_left = workspace_next
+    swipe_right = workspace_prev
+    long_press = edit
+}

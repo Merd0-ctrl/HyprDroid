@@ -100,7 +100,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -141,6 +144,7 @@ import java.util.Locale
 import androidx.compose.ui.res.stringResource
 import dev.hyprdroid.launcher.LauncherPrefs
 import dev.hyprdroid.launcher.TermuxBridge
+import dev.hyprdroid.launcher.HyprDroidConfigParser
 import java.io.File
 
 private enum class LauncherPage { SETUP, HOME, DRAWER, SETTINGS }
@@ -148,6 +152,8 @@ private data class PendingTermuxCommand(val command: String?)
 private data class SystemStats(val network: String, val memoryPercent: Int?, val cpuPercent: Int?, val batteryPercent: Int?)
 internal data class CpuSnapshot(val totalTicks: Long, val idleTicks: Long)
 internal data class FreeformBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
+private val LocalHyprGap = compositionLocalOf { 12.dp }
+private val LocalHyprBorderWidth = compositionLocalOf { 1.dp }
 private data class AppLaunchAttempt(val started: Boolean, val boundsRequested: Boolean)
 
 data class LauncherAppInfo(val packageName: String, val label: String)
@@ -168,7 +174,12 @@ fun LauncherApp(
     var dockLabels by remember { mutableStateOf(prefs.showDockLabels) }
     var animations by remember { mutableStateOf(prefs.animationsEnabled) }
     var freeformLaunchEnabled by remember { mutableStateOf(prefs.freeformLaunchEnabled) }
+    var gapDp by remember { mutableIntStateOf(prefs.gapDp) }
+    var borderWidthDp by remember { mutableFloatStateOf(prefs.borderWidthDp) }
     var wallpaperUri by remember { mutableStateOf(prefs.wallpaperUri) }
+    var configUri by remember { mutableStateOf(prefs.configUri) }
+    var configStatus by remember { mutableStateOf("") }
+    var configRevision by remember { mutableIntStateOf(0) }
     var workspace by remember { mutableIntStateOf(prefs.lastWorkspace) }
     var page by remember { mutableStateOf(if (prefs.setupCompleted) LauncherPage.HOME else LauncherPage.SETUP) }
     var editMode by remember { mutableStateOf(false) }
@@ -183,6 +194,87 @@ fun LauncherApp(
     var widgetRefresh by remember { mutableIntStateOf(widgetRevision) }
     val apps = remember { findLauncherApps(activity) }
     val accent = AccentColors[accentIndex.coerceIn(0, AccentColors.lastIndex)]
+
+    fun applyConfigText(text: String) {
+        val config = HyprDroidConfigParser.parse(text)
+        config.accentIndex?.let { accentIndex = it; prefs.accentIndex = it; onAccentChanged(it) }
+        config.transparency?.let { transparency = it; prefs.transparency = it }
+        config.dockCount?.let { dockCount = it; prefs.dockCount = it }
+        config.dockLabels?.let { dockLabels = it; prefs.showDockLabels = it }
+        config.animations?.let { animations = it; prefs.animationsEnabled = it }
+        config.freeformLaunch?.let { freeformLaunchEnabled = it; prefs.freeformLaunchEnabled = it }
+        config.gapDp?.let { gapDp = it; prefs.gapDp = it }
+        config.borderWidthDp?.let { borderWidthDp = it; prefs.borderWidthDp = it }
+        config.workspaceNames?.let { prefs.workspaceNames = it }
+        config.workspaceRules.let { prefs.workspaceRules = it }
+        prefs.resetBindingsToDefaults()
+        config.bindings.forEach { (name, action) -> prefs.setBinding(name, action) }
+        configRevision++
+        configStatus = "Config yüklendi · renk, boşluk, kenarlık, workspace ve bind ayarları uygulandı."
+    }
+
+    fun loadConfig(uri: Uri) {
+        try {
+            val text = activity.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            if (text == null) {
+                configStatus = "Config dosyası okunamadı."
+            } else {
+                applyConfigText(text)
+            }
+        } catch (error: Exception) {
+            configStatus = "Config okunamadı: ${error.message ?: "dosya erişimini kontrol et"}"
+        }
+    }
+
+    fun retainConfigUri(uri: Uri) {
+        try {
+            activity.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: SecurityException) { }
+        configUri = uri.toString()
+        prefs.configUri = configUri
+    }
+
+    val createConfigPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val output = activity.contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("Dosya yazma erişimi alınamadı")
+                output.use { it.write(HyprDroidConfigParser.DEFAULT_TEXT.toByteArray(Charsets.UTF_8)) }
+                retainConfigUri(uri)
+                configStatus = "Config oluşturuldu; dosya kaynağını ortak Documents alanında tut."
+            } catch (error: Exception) {
+                configStatus = "Config oluşturulamadı: ${error.message ?: "depolama erişimini kontrol et"}"
+            }
+        }
+    }
+    val openConfigPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            retainConfigUri(uri)
+            configStatus = "Config seçildi; yükleniyor…"
+        }
+    }
+
+    LaunchedEffect(configUri) {
+        configUri?.let { loadConfig(Uri.parse(it)) }
+    }
+
+    val reloadConfig: () -> Unit = {
+        val savedUri = configUri
+        if (savedUri == null) configStatus = "Önce bir hyprdroid.conf dosyası seç veya oluştur."
+        else loadConfig(Uri.parse(savedUri))
+    }
+
+    val launchInstalledApp: (LauncherAppInfo) -> AppLaunchAttempt = { app ->
+        prefs.workspaceRules[app.packageName]?.let { targetWorkspace ->
+            workspace = targetWorkspace
+            prefs.lastWorkspace = targetWorkspace
+        }
+        launchApp(activity, app.packageName, freeformLaunchEnabled)
+    }
+
     val termuxPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val pending = pendingTermuxCommand
         pendingTermuxCommand = null
@@ -228,7 +320,7 @@ fun LauncherApp(
                 val result = resolveAppCommand(apps, input)
                 when {
                     result.app != null -> {
-                        val attempt = launchApp(activity, result.app.packageName, freeformLaunchEnabled)
+                        val attempt = launchInstalledApp(result.app)
                         commandStatus = when {
                             !attempt.started -> "Uygulama başlatılamadı: ${result.app.label}"
                             attempt.boundsRequested -> "Açılıyor: ${result.app.label} · freeform sınırı istendi; ROM yok sayabilir."
@@ -275,6 +367,10 @@ fun LauncherApp(
                 )
             )
         )
+        CompositionLocalProvider(
+            LocalHyprGap provides gapDp.dp,
+            LocalHyprBorderWidth provides borderWidthDp.dp
+        ) {
         AnimatedContent(
             targetState = page,
             transitionSpec = {
@@ -285,6 +381,7 @@ fun LauncherApp(
             },
             label = "launcher-page-transition"
         ) { visiblePage ->
+        key(configRevision) {
         when (visiblePage) {
             LauncherPage.SETUP -> FirstRunSetup(
                 accentIndex = accentIndex,
@@ -316,10 +413,10 @@ fun LauncherApp(
                 onCommandText = { commandText = it },
                 onExecuteCommand = executeCommand,
                 animations = animations,
-                freeformLaunchEnabled = freeformLaunchEnabled,
                 onWorkspace = { workspace = it; prefs.lastWorkspace = it },
                 onOpenDrawer = { search = ""; page = LauncherPage.DRAWER },
                 onOpenSettings = { page = LauncherPage.SETTINGS },
+                onLaunchApp = { launchInstalledApp(it) },
                 onPickWidget = onPickWidget,
                 onEnterEdit = { editMode = true },
                 onExitEdit = { editMode = false },
@@ -330,9 +427,13 @@ fun LauncherApp(
                 activity = activity,
                 apps = apps,
                 search = search,
+                commandText = commandText,
+                commandStatus = commandStatus,
+                onCommandText = { commandText = it },
+                onExecuteCommand = executeCommand,
                 onSearch = { search = it },
                 onBack = { page = LauncherPage.HOME },
-                onOpenApp = { app -> launchApp(activity, app.packageName, freeformLaunchEnabled); page = LauncherPage.HOME },
+                onOpenApp = { app -> launchInstalledApp(app); page = LauncherPage.HOME },
                 onLongPressApp = { pendingAdd = it }
             )
             LauncherPage.SETTINGS -> SettingsPage(
@@ -343,12 +444,17 @@ fun LauncherApp(
                 animations = animations,
                 freeformLaunchEnabled = freeformLaunchEnabled,
                 freeformFeatureSupported = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT),
+                configSelected = configUri != null,
+                configStatus = configStatus,
                 onAccent = { accentIndex = it; prefs.accentIndex = it; onAccentChanged(it) },
                 onTransparency = { transparency = it; prefs.transparency = it },
                 onDockCount = { dockCount = it; prefs.dockCount = it },
                 onDockLabels = { dockLabels = it; prefs.showDockLabels = it },
                 onAnimations = { animations = it; prefs.animationsEnabled = it },
                 onFreeformLaunch = { freeformLaunchEnabled = it; prefs.freeformLaunchEnabled = it },
+                onCreateConfig = { createConfigPicker.launch("hyprdroid.conf") },
+                onOpenConfig = { openConfigPicker.launch(arrayOf("text/plain", "application/octet-stream")) },
+                onReloadConfig = reloadConfig,
                 onPickWallpaper = { wallpaperPicker.launch(arrayOf("image/*")) },
                 onRestore = {
                     for (i in 0 until LauncherPrefs.WORKSPACE_COUNT) {
@@ -364,6 +470,11 @@ fun LauncherApp(
                     animations = prefs.animationsEnabled
                     freeformLaunchEnabled = prefs.freeformLaunchEnabled
                     wallpaperUri = prefs.wallpaperUri
+                    gapDp = prefs.gapDp
+                    borderWidthDp = prefs.borderWidthDp
+                    configUri = prefs.configUri
+                    configStatus = ""
+                    configRevision++
                     workspace = 0
                     accentIndex = prefs.accentIndex
                     onAccentChanged(accentIndex)
@@ -371,6 +482,8 @@ fun LauncherApp(
                 },
                 onBack = { page = LauncherPage.HOME }
             )
+        }
+        }
         }
         }
     }
@@ -628,10 +741,10 @@ private fun HomePage(
     onCommandText: (String) -> Unit,
     onExecuteCommand: () -> Unit,
     animations: Boolean,
-    freeformLaunchEnabled: Boolean,
     onWorkspace: (Int) -> Unit,
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit,
+    onLaunchApp: (LauncherAppInfo) -> Unit,
     onPickWidget: (Int) -> Unit,
     onEnterEdit: () -> Unit,
     onExitEdit: () -> Unit,
@@ -640,9 +753,18 @@ private fun HomePage(
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
-    val now by produceState(System.currentTimeMillis()) {
-        while (true) { value = System.currentTimeMillis(); delay(1000) }
+    val panelGap = LocalHyprGap.current
+    val panelBorder = LocalHyprBorderWidth.current
+    fun runConfiguredAction(action: String) {
+        when (action) {
+            "drawer" -> onOpenDrawer()
+            "settings" -> onOpenSettings()
+            "edit" -> onEnterEdit()
+            "workspace_next" -> onWorkspace((workspace + 1).coerceIn(0, LauncherPrefs.WORKSPACE_COUNT - 1))
+            "workspace_prev" -> onWorkspace((workspace - 1).coerceIn(0, LauncherPrefs.WORKSPACE_COUNT - 1))
+        }
     }
+    val configuredLongPress = { runConfiguredAction(prefs.binding("long_press")) }
     val systemStats by produceState(readSystemStats(activity, null)) {
         var previousCpu = readCpuSnapshot()
         while (true) {
@@ -665,7 +787,7 @@ private fun HomePage(
     Column(
         Modifier.fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .padding(horizontal = 22.dp)
+            .padding(horizontal = 10.dp + panelGap)
             .pointerInput(workspace, editMode) {
                 dragX = 0f; dragY = 0f
                 detectDragGestures(
@@ -676,10 +798,9 @@ private fun HomePage(
                     },
                     onDragEnd = {
                         if (kotlin.math.abs(dragX) > 72 && kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
-                            val next = (workspace + if (dragX < 0) 1 else -1).coerceIn(0, LauncherPrefs.WORKSPACE_COUNT - 1)
-                            onWorkspace(next)
+                            runConfiguredAction(prefs.binding(if (dragX < 0) "swipe_left" else "swipe_right"))
                         } else if (dragY < -72 && kotlin.math.abs(dragY) > kotlin.math.abs(dragX)) {
-                            onOpenDrawer()
+                            runConfiguredAction(prefs.binding("swipe_up"))
                         }
                         dragX = 0f; dragY = 0f
                     }
@@ -690,7 +811,7 @@ private fun HomePage(
             Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 7.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Brush.horizontalGradient(listOf(Color(0xA0182034), Color(0x70131B2B), Color(0x90271B42))))
-                .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)), RoundedCornerShape(20.dp))
+                .border(BorderStroke(panelBorder, Color.White.copy(alpha = 0.16f)), RoundedCornerShape(20.dp))
                 .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -710,7 +831,7 @@ private fun HomePage(
                         Modifier.padding(horizontal = 2.dp).size(width = 25.dp, height = 27.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.05f))
-                            .combinedClickable(onClick = { onWorkspace(index) }, onLongClick = onEnterEdit),
+                            .combinedClickable(onClick = { onWorkspace(index) }, onLongClick = configuredLongPress),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("0${index + 1}", color = if (selected) Background else Color.White.copy(alpha = 0.68f), fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -725,46 +846,29 @@ private fun HomePage(
         SystemStatusStrip(systemStats)
         Spacer(Modifier.height(8.dp))
 
-        CommandBar(
-            value = commandText,
-            status = commandStatus,
-            onValueChange = onCommandText,
-            onRun = onExecuteCommand,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(11.dp))
+        Spacer(Modifier.height(panelGap / 2))
         Surface(
             color = panelColor,
             shape = RoundedCornerShape(25.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)),
+            border = BorderStroke(panelBorder, MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 17.dp)) {
+            Column(Modifier.padding(horizontal = 10.dp + panelGap, vertical = 10.dp + panelGap / 2)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(Color(0xFFFF647C), Color(0xFFFFC46B), Color(0xFF71E5B6)).forEach { light ->
                         Box(Modifier.size(7.dp).clip(CircleShape).background(light))
                     }
-                    Text("  WORKSPACE-${(workspace + 1).toString().padStart(2, '0')}  ·  HYPRDROID", color = Color.White.copy(alpha = 0.75f), fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 0.7.sp)
+                    Text("  ${prefs.workspaceName(workspace).uppercase(Locale.ROOT)}  ·  HYPRDROID", color = Color.White.copy(alpha = 0.75f), fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 0.7.sp)
                     Spacer(Modifier.weight(1f))
                     Text("● LIVE", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 8.sp)
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.12f), modifier = Modifier.padding(top = 12.dp, bottom = 5.dp))
-                Text(
-                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)),
-                    fontSize = 68.sp,
-                    lineHeight = 72.sp,
-                    letterSpacing = (-3).sp,
-                    fontWeight = FontWeight.Light,
-                    fontFamily = FontFamily.Monospace,
-                    color = Color.White,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Text(
-                    SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date(now)).uppercase(Locale.getDefault()),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
-                    fontSize = 10.sp,
-                    letterSpacing = 2.sp,
-                    modifier = Modifier.padding(top = 4.dp)
+                HorizontalDivider(color = Color.White.copy(alpha = 0.12f), modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+                CommandBar(
+                    value = commandText,
+                    status = commandStatus,
+                    onValueChange = onCommandText,
+                    onRun = onExecuteCommand,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -802,18 +906,18 @@ private fun HomePage(
                 appWidgetManager = appWidgetManager,
                 workspace = activeWorkspace,
                 editMode = editMode,
-                freeformLaunchEnabled = freeformLaunchEnabled,
+                onLaunchApp = onLaunchApp,
+                onConfiguredLongPress = configuredLongPress,
                 panelColor = panelColor,
                 onOpenDrawer = onOpenDrawer,
                 onPickWidget = onPickWidget,
-                onEnterEdit = onEnterEdit,
                 onRemoveShortcut = onRemoveShortcut,
                 onRemoveWidget = onRemoveWidget
             )
         }
 
         Spacer(
-            Modifier.weight(1f).fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onEnterEdit)
+            Modifier.weight(1f).fillMaxWidth().combinedClickable(onClick = {}, onLongClick = configuredLongPress)
         )
 
         AnimatedVisibility(visible = editMode) {
@@ -835,7 +939,7 @@ private fun HomePage(
         Surface(
             color = panelColor,
             shape = RoundedCornerShape(25.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            border = BorderStroke(panelBorder, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
             modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp)
         ) {
             Row(
@@ -847,14 +951,13 @@ private fun HomePage(
                 displayedDock.forEach { app ->
                     AppIconTile(
                         activity = activity, app = app, label = dockLabels, compact = true,
-                        onClick = { launchApp(activity, app.packageName, freeformLaunchEnabled) },
-                        onLongPress = { onEnterEdit() }
+                        onClick = { onLaunchApp(app) },
+                        onLongPress = configuredLongPress
                     )
                 }
                 if (displayedDock.isEmpty()) {
                     OutlinedButton(onClick = onOpenDrawer, border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))) {
-                        Icon(Icons.Default.Apps, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(17.dp))
-                        Text(" Uygulamalar", color = Color.White, fontSize = 12.sp)
+                        Icon(Icons.Default.Apps, "Uygulama çekmecesini aç", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -870,7 +973,7 @@ private fun HomePage(
                     Modifier.padding(horizontal = 5.dp).size(width = if (selected) 22.dp else 6.dp, height = 6.dp)
                         .clip(CircleShape)
                         .background(if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.28f))
-                    .combinedClickable(onClick = { onWorkspace(index) }, onLongClick = onEnterEdit)
+                    .combinedClickable(onClick = { onWorkspace(index) }, onLongClick = configuredLongPress)
                 )
             }
         }
@@ -892,22 +995,24 @@ private fun WorkspaceContent(
     appWidgetManager: AppWidgetManager,
     workspace: Int,
     editMode: Boolean,
-    freeformLaunchEnabled: Boolean,
+    onLaunchApp: (LauncherAppInfo) -> Unit,
+    onConfiguredLongPress: () -> Unit,
     panelColor: Color,
     onOpenDrawer: () -> Unit,
     onPickWidget: (Int) -> Unit,
-    onEnterEdit: () -> Unit,
     onRemoveShortcut: (LauncherAppInfo) -> Unit,
     onRemoveWidget: (Int) -> Unit
 ) {
+    val panelGap = LocalHyprGap.current
+    val panelBorder = LocalHyprBorderWidth.current
     if (apps.isEmpty() && widgetIds.isEmpty()) {
-        Surface(color = panelColor, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.24f))) {
+        Surface(color = panelColor, shape = RoundedCornerShape(20.dp), border = BorderStroke(panelBorder, MaterialTheme.colorScheme.primary.copy(alpha = 0.24f))) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 15.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     listOf(Color(0xFFFF647C), Color(0xFFFFC46B), Color(0xFF71E5B6)).forEach { color ->
                         Box(Modifier.size(6.dp).clip(CircleShape).background(color))
                     }
-                    Text("FLOATING WINDOW  ·  WS-${(workspace + 1).toString().padStart(2, '0')}", color = Muted, fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = 0.7.sp)
+                    Text("FLOATING WINDOW  ·  ${prefs.workspaceName(workspace).uppercase(Locale.ROOT)}", color = Muted, fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = 0.7.sp)
                 }
                 Text("Workspace boş", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.padding(top = 11.dp))
                 Text("Uygulama veya Android widget ekleyerek düzenini oluştur.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp, bottom = 12.dp))
@@ -922,20 +1027,20 @@ private fun WorkspaceContent(
             Surface(
                 color = panelColor,
                 shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                border = BorderStroke(panelBorder, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 70.dp),
                     modifier = Modifier.fillMaxWidth().heightIn(max = 205.dp).padding(horizontal = 8.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(panelGap / 2),
+                    verticalArrangement = Arrangement.spacedBy(panelGap / 2)
                 ) {
                     items(apps, key = { it.packageName }) { app ->
                         AppIconTile(
                             activity = activity, app = app, label = true,
-                            onClick = { launchApp(activity, app.packageName, freeformLaunchEnabled) },
-                            onLongPress = { if (editMode) onRemoveShortcut(app) else onEnterEdit() }
+                            onClick = { onLaunchApp(app) },
+                            onLongPress = { if (editMode) onRemoveShortcut(app) else onConfiguredLongPress() }
                         )
                     }
                 }
@@ -949,7 +1054,7 @@ private fun WorkspaceContent(
                         Surface(
                             color = panelColor,
                             shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                            border = BorderStroke(panelBorder, Color.White.copy(alpha = 0.08f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(Modifier.padding(8.dp)) {
@@ -980,24 +1085,31 @@ private fun AppDrawerPage(
     activity: ComponentActivity,
     apps: List<LauncherAppInfo>,
     search: String,
+    commandText: String,
+    commandStatus: String,
+    onCommandText: (String) -> Unit,
+    onExecuteCommand: () -> Unit,
     onSearch: (String) -> Unit,
     onBack: () -> Unit,
     onOpenApp: (LauncherAppInfo) -> Unit,
     onLongPressApp: (LauncherAppInfo) -> Unit
 ) {
+    val panelGap = LocalHyprGap.current
     val filtered = remember(apps, search) { filterLauncherApps(apps, search) }
     Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp, vertical = 10.dp)
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 10.dp + panelGap, vertical = panelGap / 2)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Ana ekrana dön") }
-            Column(Modifier.weight(1f)) {
-                Text("Uygulamalar", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                Text("${apps.size} yüklü uygulama", color = Muted, fontSize = 11.sp)
-            }
-            Icon(Icons.Default.GridView, null, tint = MaterialTheme.colorScheme.primary)
+            CommandBar(
+                value = commandText,
+                status = commandStatus,
+                onValueChange = onCommandText,
+                onRun = onExecuteCommand,
+                modifier = Modifier.weight(1f)
+            )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(panelGap))
         TextField(
             value = search,
             onValueChange = onSearch,
@@ -1015,7 +1127,7 @@ private fun AppDrawerPage(
                 cursorColor = MaterialTheme.colorScheme.primary
             )
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(panelGap))
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(if (apps.isEmpty()) "Başlatılabilir uygulama bulunamadı." else "“$search” için sonuç yok.", color = Muted)
@@ -1024,8 +1136,8 @@ private fun AppDrawerPage(
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 78.dp),
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+                horizontalArrangement = Arrangement.spacedBy(panelGap / 2),
+                verticalArrangement = Arrangement.spacedBy(panelGap / 2)
             ) {
                 items(filtered, key = { it.packageName }) { app ->
                     AppIconTile(
@@ -1043,7 +1155,7 @@ private fun AppDrawerPage(
 
 @Composable
 private fun SystemStatusStrip(stats: SystemStats) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LocalHyprGap.current / 3)) {
         SystemStatusPill("NET", stats.network, Modifier.weight(1f))
         SystemStatusPill("RAM", stats.memoryPercent?.let { "$it%" } ?: "--", Modifier.weight(1f))
         SystemStatusPill("CPU", stats.cpuPercent?.let { "$it%" } ?: "--", Modifier.weight(1f))
@@ -1056,7 +1168,7 @@ private fun SystemStatusPill(title: String, value: String, modifier: Modifier = 
     Surface(
         color = Panel.copy(alpha = 0.38f),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.11f)),
+        border = BorderStroke(LocalHyprBorderWidth.current, Color.White.copy(alpha = 0.11f)),
         modifier = modifier
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp)) {
@@ -1078,7 +1190,7 @@ private fun CommandBar(
         Surface(
             color = Panel.copy(alpha = 0.34f),
             shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.26f))
+            border = BorderStroke(LocalHyprBorderWidth.current, MaterialTheme.colorScheme.primary.copy(alpha = 0.26f))
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
                 Text(">_", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1125,12 +1237,17 @@ private fun SettingsPage(
     animations: Boolean,
     freeformLaunchEnabled: Boolean,
     freeformFeatureSupported: Boolean,
+    configSelected: Boolean,
+    configStatus: String,
     onAccent: (Int) -> Unit,
     onTransparency: (Float) -> Unit,
     onDockCount: (Int) -> Unit,
     onDockLabels: (Boolean) -> Unit,
     onAnimations: (Boolean) -> Unit,
     onFreeformLaunch: (Boolean) -> Unit,
+    onCreateConfig: () -> Unit,
+    onOpenConfig: () -> Unit,
+    onReloadConfig: () -> Unit,
     onPickWallpaper: () -> Unit,
     onRestore: () -> Unit,
     onBack: () -> Unit
@@ -1192,23 +1309,41 @@ private fun SettingsPage(
                 modifier = Modifier.padding(top = 5.dp)
             )
         }
+        SettingsSection("HYPRDROID.CONF", "Renk, panel ölçüleri, gesture bind’leri ve workspace kuralları") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onCreateConfig, modifier = Modifier.weight(1f)) { Text("Config oluştur") }
+                OutlinedButton(onClick = onOpenConfig, modifier = Modifier.weight(1f)) { Text("Dosya seç") }
+            }
+            if (configSelected) {
+                TextButton(onClick = onReloadConfig, modifier = Modifier.fillMaxWidth()) { Text("Termux düzenlemesinden sonra yenile") }
+            }
+            Text(
+                configStatus.ifBlank { if (configSelected) "Config bağlı; bu küçük dosya açılışta okunur." else "Config seçilmedi." },
+                color = Muted,
+                fontSize = 10.sp,
+                lineHeight = 15.sp
+            )
+            Text("Termux ile ortak Documents/HyprDroid konumunu kullan; README’de eşleme komutları var.", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
+        }
         SettingsSection("SIFIRLA", "Kişisel düzen ve launcher tercihlerini varsayılana döndür") {
             OutlinedButton(onClick = onRestore, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.RestartAlt, null)
                 Text("  Varsayılanlara dön")
             }
         }
-        Text("HyprDroid 1.4.0 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
+        Text("HyprDroid 1.5.0 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
     }
 }
 
 @Composable
 private fun SettingsSection(title: String, subtitle: String, content: @Composable () -> Unit) {
+    val panelGap = LocalHyprGap.current
+    val panelBorder = LocalHyprBorderWidth.current
     Surface(
-            color = Panel.copy(alpha = 0.42f),
+        color = Panel.copy(alpha = 0.42f),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+        border = BorderStroke(panelBorder, Color.White.copy(alpha = 0.06f)),
+        modifier = Modifier.fillMaxWidth().padding(bottom = panelGap.coerceAtLeast(4.dp))
     ) {
         Column(Modifier.padding(horizontal = 17.dp, vertical = 15.dp)) {
             Text(title, fontSize = 10.sp, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)

@@ -1,6 +1,6 @@
 # HyprDroid
 
-HyprDroid 1.4.0, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Sistem bilgi şeridi ağ türünü, pil yüzdesini, toplam RAM kullanımını ve Android’in `/proc/stat` sayaçlarından örneklenen CPU yükünü gösterir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
+HyprDroid 1.5.0, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekranda saat kartı kaldırıldı; terminal prompt’u onun yerini aldı. Uygulama çekmecesindeki başlık da aynı çalışan komut satırıyla değiştirildi. Waybar benzeri şeffaf sistem barı ağ türünü, pil yüzdesini, RAM’i ve örneklenen CPU yükünü gösterir. İlk açılış kişiselleştirmesi, workspace’ler, Android widget’ları, dock, uygulama komutları ve Termux Debian komut köprüsü bulunur. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
 
 ## Gereksinimler
 
@@ -43,7 +43,7 @@ Kurulumdan sonra Android’in “Ana ekran uygulaması” seçicisinde **HyprDro
 
 Yeni kurulumda ilk açılış sihirbazı vurgu rengini, panel saydamlığını, galeriden duvar kâğıdını, dock uygulama adlarını ve geçiş animasyonlarını seçtirir. Tercihler cihazda saklanır; sihirbaz bir kez görünür, seçimler daha sonra Ayarlar’dan değiştirilebilir. Önceki HyprDroid sürümünden yükselten kullanıcılar bu ilk-kurulum ekranını tekrar görmez.
 
-Ana ekranda komut alanına `run Ayarlar` veya `run instagra` yazıp klavyedeki Git/Enter düğmesine dokunarak, uygulama adının tamamı ya da tek bir uygulamaya eşleşen başlangıç kısmıyla uygulama açabilirsiniz. Paket kodu da kabul edilir: `pkg:com.whatsapp` veya `com.android.settings`. Komut, Android’in kurulu uygulama listesindeki ad/paket eşleşmesini bulur ve PackageManager üzerinden başlatır; belirsiz eşleşmelerde rastgele uygulama seçmek yerine tam ad ister. Yukarı kaydırma uygulama çekmecesini açar. Çekmecedeki arama anlık filtreler ve liste alfabetik sıralanır; bir uygulama simgesine dokunmak da uygulamayı başlatır.
+Saat kartının bulunduğu ana ekran prompt’una veya uygulama çekmecesinin üst prompt’una `run Ayarlar` ya da `run instagra` yazıp klavyedeki Git/Enter düğmesine dokunun. Uygulama adının tamamı veya tek uygulamaya eşleşen başlangıç kısmı çalışır; paket kodu da kabul edilir: `pkg:com.whatsapp` veya `com.android.settings`. Belirsiz eşleşmelerde rastgele uygulama açmak yerine tam ad ister. Yukarı kaydırma çekmeceyi açar; çekmecedeki ayrı arama alanı uygulama listesini anlık filtreler.
 
 Linux komutları HyprDroid içinde Android sistemine değil, Termux’taki Debian PRoot ortamına yönlendirilir. Termux’u F-Droid’den veya resmi GitHub sürümünden kurup ilk kez açtıktan sonra Termux’ta çalıştırın:
 
@@ -72,10 +72,25 @@ su -c 'settings put global enable_freeform_support 1'
 su -c 'settings put global force_resizable_activities 1'
 ```
 
-İkinci ayar bazı uygulamaların normal pencere boyutlandırma varsayımlarını değiştirebilir. Sorun yaşarsanız aynı anahtarları `0` yaparak kapatın. Bu cihaz ayarları launcher tercihlerinden ayrıdır; root erişimi veya ROM desteği yoksa komutlar çalışmayabilir.
+İkinci ayar bazı uygulamaların normal pencere boyutlandırma varsayımlarını değiştirebilir. Sorun yaşarsanız aynı anahtarları `0` yaparak kapatın. Bu cihaz ayarları launcher tercihlerinden ayrıdır; root erişimi veya ROM desteği yoksa komutlar çalışmayabilir. Anahtarların AOSP’deki karşılıkları [`Settings.java`](https://android.googlesource.com/platform/frameworks/base/+/android16-release/core/java/android/provider/Settings.java) kaynağında yer alır.
+
+### `hyprdroid.conf` ve Termux’tan düzenleme
+
+Ayarlar → **HYPRDROID.CONF** → **Config oluştur** ile dosyayı Android belge seçicisinde `Documents/HyprDroid/hyprdroid.conf` konumuna kaydedin. Ayarları Termux’tan düzenlemek için Termux’ta paylaşılan depolama iznini verip config’i `~/.config/hypr/` altına eşleyin:
+
+```sh
+termux-setup-storage
+mkdir -p ~/.config/hypr
+ln -sf "$HOME/storage/shared/Documents/HyprDroid/hyprdroid.conf" ~/.config/hypr/hyprdroid.conf
+nano ~/.config/hypr/hyprdroid.conf
+```
+
+Belgeler seçicisinde farklı bir konum seçtiyseniz symlink hedefini ona göre değiştirin. Düzenledikten sonra HyprDroid → Ayarlar → **Termux düzenlemesinden sonra yenile** düğmesine dokunun. Dosya, uygulama yeniden açıldığında da otomatik okunur. Düzenlenebilir başlangıç örneği [`hyprdroid.conf.example`](hyprdroid.conf.example) dosyasında bulunur.
+
+Bu, **HyprDroid’e özel küçük bir Hyprland-esintili alt kümedir; gerçek Hyprland config’i değildir**. `general` bölümünde vurgu (`lime`, `cyan`, `pink`, `purple`, `amber`, `mint`), saydamlık, `gap` (dp), `border` (dp), dock sayısı/etiketleri, animasyon ve freeform tercihi; `bind` bölümünde yalnızca izin verilen gesture eylemleri; `workspace` bölümünde üç ad ve uygulama kuralları okunur. Örneğin `rule.com.instagram.android = 2`, Instagram’ı başlatırken launcher’ın seçili workspace’ini 2 yapar; Android uygulama penceresini o workspace’e taşımaz. Tanınmayan anahtarlar uygulanmaz, sayısal değerler güvenli aralıklarla sınırlanır. HyprDroid `bind` üzerinden shell komutu çalıştırmaz.
 
 ## Teknik notlar
 
 Manifestte `MAIN` + `HOME` + `DEFAULT` intent filtresi bulunur. Uygulama keşfi, `<queries>` altında yalnızca `MAIN` + `LAUNCHER` etkinlikleriyle sınırlandırılmıştır; geniş `QUERY_ALL_PACKAGES` izni kullanılmaz. Linux komut köprüsü Termux’un resmi `RUN_COMMAND` servisini ve kullanıcı tarafından verilecek `com.termux.permission.RUN_COMMAND` iznini kullanır.
 
-HyprDroid gerçek bir Android launcher’dır fakat Android içinde root yetkisi sağlamaz, Linux/Wayland pencere yöneticisini çalıştırmaz ve Android pencere yöneticisini kontrol etmez. Freeform seçeneği yalnızca uygulama başlatılırken pencere bounds’u talep eder; gerçek pencereleme/tiling davranışı cihaz, ROM ve hedef uygulamaya bağlıdır. Debian komutları Termux’un PRoot kullanıcı alanında çalışır; gerçek root, kernel modülleri ve Android sistemini değiştirme yetkisi vermez. Varsayılan ana ekran olarak seçilmesi kullanıcı onayı gerektirir. Görünür uygulama ve kullanılabilir widget sayısı cihaza, üreticiye ve yüklü uygulamalara bağlıdır.
+HyprDroid gerçek bir Android launcher’dır fakat Android içinde root yetkisi sağlamaz, Linux/Wayland pencere yöneticisini çalıştırmaz ve Android pencere yöneticisini kontrol etmez. Freeform seçeneği yalnızca uygulama başlatılırken pencere bounds’u talep eder; gerçek pencereleme/tiling davranışı cihaz, ROM ve hedef uygulamaya bağlıdır. Debian komutları Termux’un PRoot kullanıcı alanında çalışır; gerçek root, kernel modülleri ve Android sistemini değiştirme yetkisi vermez. Debug APK, bu build ortamının debug anahtarıyla imzalanır; kişisel release keystore’u olmadan production-signed/Play Store paketi değildir. Varsayılan ana ekran olarak seçilmesi kullanıcı onayı gerektirir. Görünür uygulama ve kullanılabilir widget sayısı cihaza, üreticiye ve yüklü uygulamalara bağlıdır.
