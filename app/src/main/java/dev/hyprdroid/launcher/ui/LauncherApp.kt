@@ -1,16 +1,22 @@
 package dev.hyprdroid.launcher.ui
 
 import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Point
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -141,6 +147,8 @@ private enum class LauncherPage { SETUP, HOME, DRAWER, SETTINGS }
 private data class PendingTermuxCommand(val command: String?)
 private data class SystemStats(val network: String, val memoryPercent: Int?, val cpuPercent: Int?, val batteryPercent: Int?)
 internal data class CpuSnapshot(val totalTicks: Long, val idleTicks: Long)
+internal data class FreeformBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
+private data class AppLaunchAttempt(val started: Boolean, val boundsRequested: Boolean)
 
 data class LauncherAppInfo(val packageName: String, val label: String)
 
@@ -159,6 +167,7 @@ fun LauncherApp(
     var dockCount by remember { mutableIntStateOf(prefs.dockCount) }
     var dockLabels by remember { mutableStateOf(prefs.showDockLabels) }
     var animations by remember { mutableStateOf(prefs.animationsEnabled) }
+    var freeformLaunchEnabled by remember { mutableStateOf(prefs.freeformLaunchEnabled) }
     var wallpaperUri by remember { mutableStateOf(prefs.wallpaperUri) }
     var workspace by remember { mutableIntStateOf(prefs.lastWorkspace) }
     var page by remember { mutableStateOf(if (prefs.setupCompleted) LauncherPage.HOME else LauncherPage.SETUP) }
@@ -219,8 +228,13 @@ fun LauncherApp(
                 val result = resolveAppCommand(apps, input)
                 when {
                     result.app != null -> {
-                        launchApp(activity, result.app.packageName)
-                        commandStatus = "Açılıyor: ${result.app.label}"
+                        val attempt = launchApp(activity, result.app.packageName, freeformLaunchEnabled)
+                        commandStatus = when {
+                            !attempt.started -> "Uygulama başlatılamadı: ${result.app.label}"
+                            attempt.boundsRequested -> "Açılıyor: ${result.app.label} · freeform sınırı istendi; ROM yok sayabilir."
+                            freeformLaunchEnabled -> "Açılıyor: ${result.app.label} · freeform bounds kullanılamadı, tam ekran açılıyor."
+                            else -> "Açılıyor: ${result.app.label}"
+                        }
                         commandText = ""
                     }
                     result.message.startsWith("Birden fazla") -> commandStatus = result.message
@@ -302,6 +316,7 @@ fun LauncherApp(
                 onCommandText = { commandText = it },
                 onExecuteCommand = executeCommand,
                 animations = animations,
+                freeformLaunchEnabled = freeformLaunchEnabled,
                 onWorkspace = { workspace = it; prefs.lastWorkspace = it },
                 onOpenDrawer = { search = ""; page = LauncherPage.DRAWER },
                 onOpenSettings = { page = LauncherPage.SETTINGS },
@@ -317,7 +332,7 @@ fun LauncherApp(
                 search = search,
                 onSearch = { search = it },
                 onBack = { page = LauncherPage.HOME },
-                onOpenApp = { app -> launchApp(activity, app.packageName); page = LauncherPage.HOME },
+                onOpenApp = { app -> launchApp(activity, app.packageName, freeformLaunchEnabled); page = LauncherPage.HOME },
                 onLongPressApp = { pendingAdd = it }
             )
             LauncherPage.SETTINGS -> SettingsPage(
@@ -326,11 +341,14 @@ fun LauncherApp(
                 dockCount = dockCount,
                 dockLabels = dockLabels,
                 animations = animations,
+                freeformLaunchEnabled = freeformLaunchEnabled,
+                freeformFeatureSupported = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT),
                 onAccent = { accentIndex = it; prefs.accentIndex = it; onAccentChanged(it) },
                 onTransparency = { transparency = it; prefs.transparency = it },
                 onDockCount = { dockCount = it; prefs.dockCount = it },
                 onDockLabels = { dockLabels = it; prefs.showDockLabels = it },
                 onAnimations = { animations = it; prefs.animationsEnabled = it },
+                onFreeformLaunch = { freeformLaunchEnabled = it; prefs.freeformLaunchEnabled = it },
                 onPickWallpaper = { wallpaperPicker.launch(arrayOf("image/*")) },
                 onRestore = {
                     for (i in 0 until LauncherPrefs.WORKSPACE_COUNT) {
@@ -344,6 +362,7 @@ fun LauncherApp(
                     dockCount = prefs.dockCount
                     dockLabels = prefs.showDockLabels
                     animations = prefs.animationsEnabled
+                    freeformLaunchEnabled = prefs.freeformLaunchEnabled
                     wallpaperUri = prefs.wallpaperUri
                     workspace = 0
                     accentIndex = prefs.accentIndex
@@ -609,6 +628,7 @@ private fun HomePage(
     onCommandText: (String) -> Unit,
     onExecuteCommand: () -> Unit,
     animations: Boolean,
+    freeformLaunchEnabled: Boolean,
     onWorkspace: (Int) -> Unit,
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -782,6 +802,7 @@ private fun HomePage(
                 appWidgetManager = appWidgetManager,
                 workspace = activeWorkspace,
                 editMode = editMode,
+                freeformLaunchEnabled = freeformLaunchEnabled,
                 panelColor = panelColor,
                 onOpenDrawer = onOpenDrawer,
                 onPickWidget = onPickWidget,
@@ -826,7 +847,7 @@ private fun HomePage(
                 displayedDock.forEach { app ->
                     AppIconTile(
                         activity = activity, app = app, label = dockLabels, compact = true,
-                        onClick = { launchApp(activity, app.packageName) },
+                        onClick = { launchApp(activity, app.packageName, freeformLaunchEnabled) },
                         onLongPress = { onEnterEdit() }
                     )
                 }
@@ -871,6 +892,7 @@ private fun WorkspaceContent(
     appWidgetManager: AppWidgetManager,
     workspace: Int,
     editMode: Boolean,
+    freeformLaunchEnabled: Boolean,
     panelColor: Color,
     onOpenDrawer: () -> Unit,
     onPickWidget: (Int) -> Unit,
@@ -912,7 +934,7 @@ private fun WorkspaceContent(
                     items(apps, key = { it.packageName }) { app ->
                         AppIconTile(
                             activity = activity, app = app, label = true,
-                            onClick = { launchApp(activity, app.packageName) },
+                            onClick = { launchApp(activity, app.packageName, freeformLaunchEnabled) },
                             onLongPress = { if (editMode) onRemoveShortcut(app) else onEnterEdit() }
                         )
                     }
@@ -1101,11 +1123,14 @@ private fun SettingsPage(
     dockCount: Int,
     dockLabels: Boolean,
     animations: Boolean,
+    freeformLaunchEnabled: Boolean,
+    freeformFeatureSupported: Boolean,
     onAccent: (Int) -> Unit,
     onTransparency: (Float) -> Unit,
     onDockCount: (Int) -> Unit,
     onDockLabels: (Boolean) -> Unit,
     onAnimations: (Boolean) -> Unit,
+    onFreeformLaunch: (Boolean) -> Unit,
     onPickWallpaper: () -> Unit,
     onRestore: () -> Unit,
     onBack: () -> Unit
@@ -1153,13 +1178,27 @@ private fun SettingsPage(
         SettingsSection("HAREKETLER", "Geçişleri tercihine göre ayarla") {
             SettingSwitch("Yumuşak workspace animasyonları", animations, onAnimations)
         }
+        SettingsSection("FREEFORM PENCERELER", "Uygulama açılışında ekran piksel koordinatlarında yüzen pencere sınırı talep et") {
+            SettingSwitch("Uygulamaları yüzen pencerede aç", freeformLaunchEnabled, onFreeformLaunch)
+            Text(
+                text = if (freeformFeatureSupported) {
+                    "Android bu cihazda freeform özelliğini bildiriyor. Uygulama veya One UI yine de isteği değiştirebilir."
+                } else {
+                    "Android freeform özelliğini bildirmiyor; bu sınır isteği yok sayılıp uygulama tam ekran açılabilir."
+                },
+                color = if (freeformFeatureSupported) Muted else Color(0xFFFFC46B),
+                fontSize = 10.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 5.dp)
+            )
+        }
         SettingsSection("SIFIRLA", "Kişisel düzen ve launcher tercihlerini varsayılana döndür") {
             OutlinedButton(onClick = onRestore, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.RestartAlt, null)
                 Text("  Varsayılanlara dön")
             }
         }
-        Text("HyprDroid 1.3.1 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
+        Text("HyprDroid 1.4.0 · Android HOME launcher", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp, bottom = 18.dp))
     }
 }
 
@@ -1329,10 +1368,53 @@ internal fun resolveAppCommand(apps: List<LauncherAppInfo>, rawCommand: String):
     }
 }
 
-private fun launchApp(context: Context, packageName: String) {
+internal fun centeredFreeformBounds(widthPx: Int, heightPx: Int): FreeformBounds? {
+    if (widthPx <= 0 || heightPx <= 0) return null
+    val windowWidth = (widthPx * 0.86f).toInt().coerceIn(1, widthPx)
+    val windowHeight = (heightPx * 0.68f).toInt().coerceIn(1, heightPx)
+    val left = (widthPx - windowWidth) / 2
+    val top = (heightPx - windowHeight) / 2
+    return FreeformBounds(left, top, left + windowWidth, top + windowHeight)
+}
+
+private fun freeformBoundsOnDisplay(context: Context): Rect? {
+    return try {
+        val windowManager = context.getSystemService(WindowManager::class.java) ?: return null
+        val (width, height) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            bounds.width() to bounds.height()
+        } else {
+            val size = Point()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealSize(size)
+            size.x to size.y
+        }
+        val bounds = centeredFreeformBounds(width, height) ?: return null
+        Rect(bounds.left, bounds.top, bounds.right, bounds.bottom)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun launchApp(context: Context, packageName: String, requestFreeform: Boolean = false): AppLaunchAttempt {
     try {
-        val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return AppLaunchAttempt(false, false)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (requestFreeform) {
+            val bounds = freeformBoundsOnDisplay(context)
+            if (bounds != null) {
+                try {
+                    val options = ActivityOptions.makeBasic().setLaunchBounds(bounds)
+                    context.startActivity(intent, options.toBundle())
+                    return AppLaunchAttempt(true, true)
+                } catch (_: Exception) {
+                    // Fall back to Android's normal launch when the device rejects launch bounds.
+                }
+            }
+        }
         context.startActivity(intent)
-    } catch (_: Exception) { }
+        return AppLaunchAttempt(true, false)
+    } catch (_: Exception) {
+        return AppLaunchAttempt(false, false)
+    }
 }

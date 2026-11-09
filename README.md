@@ -1,6 +1,6 @@
 # HyprDroid
 
-HyprDroid 1.3.1, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Sistem bilgi şeridi ağ türünü, pil yüzdesini, toplam RAM kullanımını ve Android’in `/proc/stat` sayaçlarından örneklenen CPU yükünü gösterir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
+HyprDroid 1.4.0, Hyprland’den esinlenen gerçek bir Android **HOME launcher** uygulamasıdır. Ana ekran; translucent/blur’lu Waybar benzeri üst paneli, seçilebilir workspace pills, renkli pencere kontrol noktaları, neon kenarlı floating window kartları ve cam görünümlü dock’u tek bir Hyprland esintili görsel dile taşır. İlk açılış sihirbazı herkesin vurgu rengi, saydamlık, wallpaper ve dock tercihlerini seçmesine izin verir. Sistem bilgi şeridi ağ türünü, pil yüzdesini, toplam RAM kullanımını ve Android’in `/proc/stat` sayaçlarından örneklenen CPU yükünü gösterir. Android 12+’ta wallpaper arka planına blur uygulanır; daha eski sürümlerde yarı saydam paneller desteklenir. Kotlin, Jetpack Compose ve Material 3 ile hazırlanmıştır. Android’in pencere yöneticisini değiştirmez.
 
 ## Gereksinimler
 
@@ -59,10 +59,23 @@ nano ~/.termux/termux.properties
 
 Ana ekranda boş alana uzun basarak düzenleme kipine girin. Buradan uygulama kısayolları ve Android widget’ları ekleyebilirsiniz. Uygulama çekmecesinde bir uygulamaya uzun basıp hedef çalışma alanını seçerek kısayol eklenir. Her workspace için kısayollar ve AppWidgetHost kimlikleri ayrı saklanır. Widget seçimi sistemin widget picker’ını, çizimi ise Android AppWidgetHost API’sini kullanır.
 
-Ayarlar ekranında altı vurgu renginden birini, galeriden duvar kâğıdını, panellerin saydamlığını, dock kapasitesini ve dock uygulama adlarını seçebilirsiniz. Yumuşak geçiş animasyonları açılıp kapatılabilir. “Varsayılanlara dön” launcher tercihlerini, çalışma alanı kısayollarını ve eklenmiş widget’ları sıfırlar.
+Ayarlar ekranında altı vurgu renginden birini, galeriden duvar kâğıdını, panellerin saydamlığını, dock kapasitesini ve dock uygulama adlarını seçebilirsiniz. “Freeform pencereler” anahtarı açıksa komutla, çekmeceden, workspace kısayolundan ve dock’tan başlatılan uygulamalar için Android’e ekran koordinatlarında bir `ActivityOptions.setLaunchBounds` isteği gönderilir; kapalıysa standart başlatma kullanılır. Yumuşak geçiş animasyonları da açılıp kapatılabilir. “Varsayılanlara dön” launcher tercihlerini, çalışma alanı kısayollarını ve eklenmiş widget’ları sıfırlar.
+
+### Freeform gereksinimleri ve sınırları
+
+`setLaunchBounds` gerçek bir pencere garantisi vermez. Android, cihaz freeform window-management özelliğini bildirmiyorsa bu bounds isteğini yok sayabilir; üretici arayüzü veya başlatılan uygulama da pencere düzenini değiştirebilir. Launcher’daki durum satırı bu nedenle “istek gönderildi” der, pencerenin gerçekten yüzen moda geçtiğini iddia etmez. Android’in [ActivityOptions API belgesi](https://developer.android.com/reference/android/app/ActivityOptions) ve [çoklu pencere cihaz gereksinimleri](https://source.android.com/docs/core/display/multi-window) cihaz/ROM desteğinin belirleyici olduğunu açıklar. Bu özellik Galaxy A25 üzerinde henüz doğrulanmamıştır.
+
+Root erişimli bir cihazda freeform denemek isterseniz, aşağıdaki ayarları **kendi root yetkili terminalinizde** çalıştırın; HyprDroid bunları otomatik çalıştırmaz:
+
+```sh
+su -c 'settings put global enable_freeform_support 1'
+su -c 'settings put global force_resizable_activities 1'
+```
+
+İkinci ayar bazı uygulamaların normal pencere boyutlandırma varsayımlarını değiştirebilir. Sorun yaşarsanız aynı anahtarları `0` yaparak kapatın. Bu cihaz ayarları launcher tercihlerinden ayrıdır; root erişimi veya ROM desteği yoksa komutlar çalışmayabilir.
 
 ## Teknik notlar
 
 Manifestte `MAIN` + `HOME` + `DEFAULT` intent filtresi bulunur. Uygulama keşfi, `<queries>` altında yalnızca `MAIN` + `LAUNCHER` etkinlikleriyle sınırlandırılmıştır; geniş `QUERY_ALL_PACKAGES` izni kullanılmaz. Linux komut köprüsü Termux’un resmi `RUN_COMMAND` servisini ve kullanıcı tarafından verilecek `com.termux.permission.RUN_COMMAND` iznini kullanır.
 
-HyprDroid gerçek bir Android launcher’dır fakat Android içinde root yetkisi sağlamaz, Linux/Wayland pencere yöneticisini çalıştırmaz, Android pencere yöneticisini kontrol etmez ve uygulama pencerelerini Hyprland gibi düzenlemez. Debian komutları Termux’un PRoot kullanıcı alanında çalışır; gerçek root, kernel modülleri ve Android sistemini değiştirme yetkisi vermez. Varsayılan ana ekran olarak seçilmesi kullanıcı onayı gerektirir. Görünür uygulama ve kullanılabilir widget sayısı cihaza, üreticiye ve yüklü uygulamalara bağlıdır.
+HyprDroid gerçek bir Android launcher’dır fakat Android içinde root yetkisi sağlamaz, Linux/Wayland pencere yöneticisini çalıştırmaz ve Android pencere yöneticisini kontrol etmez. Freeform seçeneği yalnızca uygulama başlatılırken pencere bounds’u talep eder; gerçek pencereleme/tiling davranışı cihaz, ROM ve hedef uygulamaya bağlıdır. Debian komutları Termux’un PRoot kullanıcı alanında çalışır; gerçek root, kernel modülleri ve Android sistemini değiştirme yetkisi vermez. Varsayılan ana ekran olarak seçilmesi kullanıcı onayı gerektirir. Görünür uygulama ve kullanılabilir widget sayısı cihaza, üreticiye ve yüklü uygulamalara bağlıdır.

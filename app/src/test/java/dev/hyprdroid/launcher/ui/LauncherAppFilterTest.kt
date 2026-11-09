@@ -101,4 +101,15 @@ class LauncherAppFilterTest {
     fun `cpu usage returns null when counters do not advance`() {
         assertNull(cpuUsagePercent(CpuSnapshot(100, 80), CpuSnapshot(100, 80)))
     }
+
+    @Test
+    fun `freeform bounds are centered and stay inside the display`() {
+        assertEquals(FreeformBounds(70, 160, 930, 840), centeredFreeformBounds(1000, 1000))
+    }
+
+    @Test
+    fun `freeform bounds reject invalid display sizes`() {
+        assertNull(centeredFreeformBounds(0, 1000))
+        assertNull(centeredFreeformBounds(1000, -1))
+    }
 }

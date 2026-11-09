@@ -41,6 +41,10 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean("animations", true)
         set(value) { prefs.edit().putBoolean("animations", value).apply() }
 
+    var freeformLaunchEnabled: Boolean
+        get() = prefs.getBoolean("freeform_launch", false)
+        set(value) { prefs.edit().putBoolean("freeform_launch", value).apply() }
+
     var wallpaperUri: String?
         get() = prefs.getString("wallpaper_uri", null)
         set(value) { prefs.edit().putString("wallpaper_uri", value).apply() }
